@@ -2,12 +2,11 @@ import numpy as np
 import pandas as pd
 from scipy.stats import ttest_ind, pearsonr, shapiro
 from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+import seaborn as sns
+import networkx as nx
 
 def read_fasta(path):
-    """
-    Lee un archivo FASTA y devuelve un diccionario:
-    {ID : secuencia}
-    """
     sequences = {}
     with open(path, "r") as f:
         current_id = None
@@ -182,3 +181,86 @@ print(f"  → WGCNA:\n      - {interpretation['WGCNA']}\n")
 
 print("="*60 + "\n")
 
+sns.set(style="whitegrid")
+
+# ========================================================
+# GRAFICAS AVANZADAS
+# ========================================================
+
+# ---------------- qPCR VIOLIN + DOTPLOT ----------------
+for g in genes_original:
+    plt.figure(figsize=(6,4))
+    df = pd.DataFrame({
+        "ΔCt": np.concatenate([deltaCt_control[g], deltaCt_case[g]]),
+        "Grupo": ["Control"]*n + ["Caso"]*n
+    })
+    sns.violinplot(x="Grupo", y="ΔCt", data=df, inner=None, alpha=0.6)
+    sns.stripplot(x="Grupo", y="ΔCt", data=df, color="black", size=3)
+    plt.title(f"Distribución ΔCt – {g}")
+    plt.tight_layout()
+    plt.savefig(f"violinplot_{g}.png", dpi=300)
+    plt.close()
+
+# ---------------- MA PLOT ----------------
+A = logCPM.mean(axis=0)
+M = betas
+plt.figure(figsize=(7,6))
+plt.scatter(A, M, c=(pvals<0.05), cmap="coolwarm", s=10)
+plt.xlabel("A (logCPM medio)")
+plt.ylabel("M (logFC)")
+plt.title("MA Plot")
+plt.tight_layout()
+plt.savefig("MA_plot.png", dpi=300)
+plt.close()
+
+# ---------------- VOLCANO PLOT ----------------
+plt.figure(figsize=(7,6))
+plt.scatter(betas, -np.log10(pvals), c=(pvals<0.05), cmap="coolwarm", s=10)
+plt.xlabel("logFC")
+plt.ylabel("-log10(pvalue)")
+plt.title("Volcano Plot")
+plt.axhline(-np.log10(0.05), color="grey", linestyle="--")
+plt.tight_layout()
+plt.savefig("volcano_plot.png", dpi=300)
+plt.close()
+
+# ---------------- PCA 2D ----------------
+from sklearn.decomposition import PCA
+pca2 = PCA(n_components=2)
+pca_vals = pca2.fit_transform(logCPM)
+
+plt.figure(figsize=(6,5))
+plt.scatter(pca_vals[:,0], pca_vals[:,1], c=groups, cmap="coolwarm")
+plt.xlabel(f"PC1 ({pca2.explained_variance_ratio_[0]*100:.1f}%)")
+plt.ylabel(f"PC2 ({pca2.explained_variance_ratio_[1]*100:.1f}%)")
+plt.title("PCA – expresión de todos los genes")
+plt.tight_layout()
+plt.savefig("PCA2D.png", dpi=300)
+plt.close()
+
+# ---------------- HEATMAP TOP 50 GENES ----------------
+top_idx = np.argsort(variances)[-50:]
+top_genes = logCPM.iloc[:, top_idx]
+
+plt.figure(figsize=(10,8))
+sns.clustermap(top_genes.T, cmap="coolwarm", figsize=(10,10))
+plt.savefig("heatmap_top50.png", dpi=300)
+plt.close()
+
+# ---------------- NETWORK GRAPH (correlaciones > 0.7) ----------------
+corr = subset.corr()
+edges = [(i,j) for i in corr.columns for j in corr.columns 
+         if i != j and abs(corr.loc[i,j]) > 0.7]
+
+G = nx.Graph()
+G.add_nodes_from(subset.columns)
+G.add_edges_from(edges)
+
+plt.figure(figsize=(10,10))
+pos = nx.spring_layout(G, k=0.15)
+nx.draw_networkx_nodes(G, pos, node_size=50)
+nx.draw_networkx_edges(G, pos, alpha=0.3)
+plt.title("Red de coexpresión (|corr| > 0.7) – Subset")
+plt.axis("off")
+plt.savefig("network_graph.png", dpi=300)
+plt.close()
